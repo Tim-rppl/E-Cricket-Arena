@@ -9,7 +9,9 @@
         <!-- 根据游戏类型显示对应的棋盘 -->
         <GoBoard
           v-if="gameType === 'go'"
+          ref="goBoard"
           @stone-placed="handleStonePlaced"
+          @stones-captured="handleStonesCaptured"
         />
         <ChessBoard
           v-else
@@ -17,6 +19,11 @@
         />
       </div>
       <div class="game-sidebar">
+        <GoScoreBoard
+          v-if="gameType === 'go'"
+          ref="goScoreBoard"
+          @counting-mode-changed="handleCountingModeChanged"
+        />
         <div class="ai-selection">
           <h3>选择AI模型</h3>
           <!-- AI选择组件将在这里渲染 -->
@@ -31,10 +38,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import GoBoard from '@/components/go/GoBoard.vue'
 import ChessBoard from '@/components/chess/ChessBoard.vue'
+import GoScoreBoard from '@/components/go/GoScoreBoard.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -42,16 +50,47 @@ const route = useRoute()
 const gameType = computed(() => route.query.type as string)
 const gameTitle = computed(() => gameType.value === 'chess' ? '国际象棋' : '围棋')
 
-// 处理围棋落子事件
+// 添加记分板引用
+const goScoreBoard = ref<InstanceType<typeof GoScoreBoard> | null>(null)
+
+// 添加棋盘引用
+const goBoard = ref<InstanceType<typeof GoBoard> | null>(null)
+
+// 修改处理围棋落子事件
 const handleStonePlaced = (stone: any) => {
   console.log('Stone placed:', stone)
-  // TODO: 处理落子逻辑，与AI交互
+}
+
+// 修改处理提子事件
+const handleStonesCaptured = (data: {
+  color: 'black' | 'white'
+  count: number
+  blackTotal: number
+  whiteTotal: number
+}) => {
+  if (goScoreBoard.value) {
+    // 更新双方提子数
+    goScoreBoard.value.updateCaptures('black', data.blackTotal)
+    goScoreBoard.value.updateCaptures('white', data.whiteTotal)
+  }
 }
 
 // 处理国际象棋移动事件
 const handlePieceMoved = (move: any) => {
   console.log('Piece moved:', move)
   // TODO: 处理移动逻辑，与AI交互
+}
+
+// 修改数子模式处理函数
+const handleCountingModeChanged = (isCountingMode: boolean) => {
+  if (goBoard.value) {
+    goBoard.value.setCountingMode(isCountingMode)
+    // 重置记分板的领地计数
+    if (goScoreBoard.value) {
+      goScoreBoard.value.updateTerritory('black', 0)
+      goScoreBoard.value.updateTerritory('white', 0)
+    }
+  }
 }
 </script>
 

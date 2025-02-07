@@ -73,6 +73,11 @@ const previewStone = ref<Stone | null>(null)
 const currentColor = computed(() => stones.value.length % 2 === 0 ? 'black' : 'white')
 const koPoint = ref<Position | null>(null)
 
+// 在 script setup 中添加提子计数
+const blackCaptures = ref(0)
+const whiteCaptures = ref(0)
+const isCountingMode = ref(false)
+
 // 计算棋盘大小
 const boardSize = computed(() => props.cellSize * (props.size - 1))
 const boardStyle = computed(() => ({
@@ -95,13 +100,15 @@ const getAdjacent = (x: number, y: number): Position[] => {
   return adjacent
 }
 
-// 计算一组棋子的气
+// 修改原有的 getLiberties 函数
 const getLiberties = (group: Position[]): Position[] => {
   const liberties = new Set<string>()
   
   group.forEach(pos => {
     getAdjacent(pos.x, pos.y).forEach(adj => {
-      if (!getStone(adj.x, adj.y)) {
+      // 检查这个位置是否已经有棋子
+      const stone = getStone(adj.x, adj.y)
+      if (!stone) {
         liberties.add(`${adj.x},${adj.y}`)
       }
     })
@@ -142,35 +149,93 @@ const getGroup = (stone: Stone): Position[] => {
   })
 }
 
-// 提取死子
+// 修改事件定义
+const emit = defineEmits<{
+  (e: 'stone-placed', stone: Stone): void
+  (e: 'stones-captured', data: {
+    color: 'black' | 'white'
+    count: number
+    blackTotal: number
+    whiteTotal: number
+  }): void
+}>()
+
+// 修改提子函数
 const captureDeadStones = (x: number, y: number, color: 'black' | 'white') => {
   const capturedStones: Position[] = []
   
+  // 检查所有相邻的对方棋子
   getAdjacent(x, y).forEach(adj => {
     const stone = getStone(adj.x, adj.y)
     if (stone && stone.color !== color) {
       const group = getGroup(stone)
-      if (getLiberties(group).length === 0) {
+      // 计算这个群的气
+      const liberties = getLiberties(group)
+      // 如果这个群没气了，就提掉
+      if (liberties.length === 0) {
         capturedStones.push(...group)
       }
     }
   })
   
+  // 如果只提了一个子，记录打劫点
   if (capturedStones.length === 1) {
     koPoint.value = capturedStones[0]
   } else {
     koPoint.value = null
   }
   
-  const newStones = stones.value.filter(stone => 
-    !capturedStones.some(pos => pos.x === stone.x && pos.y === stone.y)
-  )
-  stones.value = newStones
+  // 如果有提子，更新棋盘状态
+  if (capturedStones.length > 0) {
+    // 更新棋盘状态
+    stones.value = stones.value.filter(stone => 
+      !capturedStones.some(pos => pos.x === stone.x && pos.y === stone.y)
+    )
+    
+    // 更新提子计数
+    if (color === 'black') {
+      blackCaptures.value += capturedStones.length
+    } else {
+      whiteCaptures.value += capturedStones.length
+    }
+    
+    // 触发提子事件
+    emit('stones-captured', {
+      color,
+      count: capturedStones.length,
+      blackTotal: blackCaptures.value,
+      whiteTotal: whiteCaptures.value
+    })
+  }
   
   return capturedStones.length
 }
 
-// 判断是否为有效移动
+// 修改放置棋子的函数
+const placeStone = (x: number, y: number) => {
+  if (!isValidMove(x, y)) return
+  
+  const color = currentColor.value
+  const newStone: Stone = { x, y, color }
+  stones.value.push(newStone)
+  
+  // 先检查是否提掉对方的子
+  const capturedCount = captureDeadStones(x, y, color)
+  
+  // 如果没有提子，且这步棋自己没气了，说明是自杀，撤销这步棋
+  if (capturedCount === 0) {
+    const group = getGroup(newStone)
+    if (getLiberties(group).length === 0) {
+      stones.value.pop() // 撤销这步棋
+      return
+    }
+  }
+  
+  lastMove.value = newStone
+  emit('stone-placed', newStone)
+}
+
+// 修改判断是否为有效移动的函数
 const isValidMove = (x: number, y: number) => {
   // 检查是否已有棋子
   if (getStone(x, y)) return false
@@ -183,24 +248,40 @@ const isValidMove = (x: number, y: number) => {
   const color = currentColor.value
   // 模拟落子
   const testStone: Stone = { x, y, color }
+  
+  // 临时添加这个棋子来检查状态
+  stones.value.push(testStone)
+  
+  // 检查这步棋落下后的状态
   const group = getGroup(testStone)
+  const hasLiberties = getLiberties(group).length > 0
   
-  // 如果这步棋自己就有气，那就是合法的
-  if (getLiberties(group).length > 0) return true
-  
-  // 如果这步棋能吃掉对方的子，那也是合法的
-  return getAdjacent(x, y).some(adj => {
+  // 检查是否能提掉对方的子
+  let canCapture = false
+  getAdjacent(x, y).forEach(adj => {
     const stone = getStone(adj.x, adj.y)
     if (stone && stone.color !== color) {
       const enemyGroup = getGroup(stone)
-      return getLiberties(enemyGroup).length === 1
+      if (getLiberties(enemyGroup).length === 0) {
+        canCapture = true
+      }
     }
-    return false
   })
+  
+  // 移除临时添加的棋子
+  stones.value.pop()
+  
+  // 如果这步棋有气，或者能提子，就是合法的
+  return hasLiberties || canCapture
 }
 
-// 修改事件处理函数
+// 修改处理点击事件
 const handleClick = (event: MouseEvent) => {
+  // 在数子模式下禁用落子
+  if (isCountingMode.value) {
+    return
+  }
+
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const offsetX = event.clientX - rect.left
   const offsetY = event.clientY - rect.top
@@ -208,14 +289,19 @@ const handleClick = (event: MouseEvent) => {
   const x = Math.floor(offsetX / props.cellSize)
   const y = Math.floor(offsetY / props.cellSize)
   
-  console.log('Click at:', x, y) // 添加调试日志
-  
   if (x >= 0 && x < props.size && y >= 0 && y < props.size) {
     placeStone(x, y)
   }
 }
 
+// 修改处理鼠标移动事件
 const handleMouseMove = (event: MouseEvent) => {
+  // 在数子模式下不显示预览
+  if (isCountingMode.value) {
+    previewStone.value = null
+    return
+  }
+
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const offsetX = event.clientX - rect.left
   const offsetY = event.clientY - rect.top
@@ -235,26 +321,10 @@ const handleMouseLeave = () => {
   previewStone.value = null
 }
 
-// 放置棋子
-const placeStone = (x: number, y: number) => {
-  if (!isValidMove(x, y)) return
-  
-  const color = currentColor.value
-  const newStone: Stone = { x, y, color }
-  stones.value.push(newStone)
-  
-  // 提取死子
-  captureDeadStones(x, y, color)
-  
-  lastMove.value = newStone
-  // 触发落子事件
-  emit('stone-placed', newStone)
+// 添加设置数子模式的方法
+const setCountingMode = (mode: boolean) => {
+  isCountingMode.value = mode
 }
-
-// 定义事件
-const emit = defineEmits<{
-  (e: 'stone-placed', stone: Stone): void
-}>()
 
 // 组件挂载时绘制棋盘
 onMounted(() => {
@@ -342,17 +412,22 @@ const getMarkerStyle = (stone: Stone) => {
   }
 }
 
-// 在 script setup 的最后添加
-// 暴露属性和方法给父组件
+// 扩展暴露的属性和方法
 defineExpose({
   stones,
   lastMove,
   koPoint,
+  blackCaptures,
+  whiteCaptures,
   reset: () => {
     stones.value = []
     lastMove.value = null
     koPoint.value = null
-  }
+    blackCaptures.value = 0
+    whiteCaptures.value = 0
+    isCountingMode.value = false
+  },
+  setCountingMode
 })
 </script>
 

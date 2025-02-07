@@ -6,7 +6,15 @@
     </header>
     <div class="game-container">
       <div class="game-board">
-        <!-- 游戏棋盘将在这里渲染 -->
+        <!-- 根据游戏类型显示对应的棋盘 -->
+        <GoBoard
+          v-if="gameType === 'go'"
+          @stone-placed="handleStonePlaced"
+        />
+        <ChessBoard
+          v-else
+          @piece-moved="handlePieceMoved"
+        />
       </div>
       <div class="game-sidebar">
         <div class="ai-selection">
@@ -25,14 +33,26 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import GoBoard from '@/components/go/GoBoard.vue'
+import ChessBoard from '@/components/chess/ChessBoard.vue'
 
 const router = useRouter()
 const route = useRoute()
 
-const gameTitle = computed(() => {
-  const type = route.query.type as string
-  return type === 'chess' ? '国际象棋' : '围棋'
-})
+const gameType = computed(() => route.query.type as string)
+const gameTitle = computed(() => gameType.value === 'chess' ? '国际象棋' : '围棋')
+
+// 处理围棋落子事件
+const handleStonePlaced = (stone: any) => {
+  console.log('Stone placed:', stone)
+  // TODO: 处理落子逻辑，与AI交互
+}
+
+// 处理国际象棋移动事件
+const handlePieceMoved = (move: any) => {
+  console.log('Piece moved:', move)
+  // TODO: 处理移动逻辑，与AI交互
+}
 </script>
 
 <style scoped>
@@ -65,8 +85,13 @@ const gameTitle = computed(() => {
 
 .game-board {
   flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   border: 1px solid #ddd;
   border-radius: 8px;
+  background-color: #fff;
+  padding: 1rem;
 }
 
 .game-sidebar {
@@ -81,6 +106,7 @@ const gameTitle = computed(() => {
   border: 1px solid #ddd;
   border-radius: 8px;
   padding: 1rem;
+  background-color: #fff;
 }
 
 .chat-window {
